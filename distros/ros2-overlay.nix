@@ -1,174 +1,267 @@
-self:
-rosSelf: rosSuper:
+self: rosSelf: rosSuper:
 let
-  rtabmapPostPatchAarch64 = {
-    postPatch ? "", ...
-  }: {
-    # Fix https://github.com/lopsided98/nix-ros-overlay/issues/815 by
-    # disabling the aarch64-specific code that searches in /opt.
-    postPatch = postPatch + ''
-      substituteInPlace CMakeLists.txt \
-        --replace-fail 'if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")' 'if(FALSE)'
-    '';
-  };
+  rtabmapPostPatchAarch64 =
+    {
+      postPatch ? "",
+      ...
+    }:
+    {
+      # Fix https://github.com/lopsided98/nix-ros-overlay/issues/815 by
+      # disabling the aarch64-specific code that searches in /opt.
+      postPatch = postPatch + ''
+        substituteInPlace CMakeLists.txt \
+          --replace-fail 'if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")' 'if(FALSE)'
+      '';
+    };
 in
-with rosSelf.lib; {
+with rosSelf.lib;
+{
 
   # TODO: remove once https://github.com/ros/rosdistro/pull/43895 is merged
   python = rosSelf.python3;
   pythonPackages = rosSelf.python.pkgs;
 
-  ardrone-sdk = rosSuper.ardrone-sdk.overrideAttrs ({
-    nativeBuildInputs ? [], ...
-  }: {
-    # https://github.com/vtalpaert/ardrone-ros2/pull/2
-    nativeBuildInputs = nativeBuildInputs ++ [ self.pkg-config ];
-  });
+  ardrone-sdk = rosSuper.ardrone-sdk.overrideAttrs (
+    {
+      nativeBuildInputs ? [ ],
+      ...
+    }:
+    {
+      # https://github.com/vtalpaert/ardrone-ros2/pull/2
+      nativeBuildInputs = nativeBuildInputs ++ [ self.pkg-config ];
+    }
+  );
 
-  ament-cmake-core = rosSuper.ament-cmake-core.overrideAttrs ({
-    propagatedBuildInputs ? [],
-    nativeBuildInputs ? [], ...
-  }: let
-    setupHook = rosSelf.callPackage ./ament-cmake-core-setup-hook { };
-  in {
-    propagatedBuildInputs = [ setupHook ] ++ propagatedBuildInputs;
-    nativeBuildInputs = [ setupHook ] ++ nativeBuildInputs;
-    outputs = [ "out" "dev" ];
-  });
+  ament-cmake-core = rosSuper.ament-cmake-core.overrideAttrs (
+    {
+      propagatedBuildInputs ? [ ],
+      nativeBuildInputs ? [ ],
+      ...
+    }:
+    let
+      setupHook = rosSelf.callPackage ./ament-cmake-core-setup-hook { };
+    in
+    {
+      propagatedBuildInputs = [ setupHook ] ++ propagatedBuildInputs;
+      nativeBuildInputs = [ setupHook ] ++ nativeBuildInputs;
+      outputs = [
+        "out"
+        "dev"
+      ];
+    }
+  );
 
-  ament-cmake-vendor-package = rosSuper.ament-cmake-vendor-package.overrideAttrs ({
-    postPatch ? "", ...
-  }: {
-    # Install to standard directories instead of /opt. With Nix, we don't have
-    # to worry about collisions with system packages and Nix tooling generally
-    # expects standard directories.
-    postPatch = postPatch + ''
-      substituteInPlace cmake/ament_vendor.cmake \
-        --replace-fail 'opt/''${PROJECT_NAME}' .
-      substituteInPlace cmake/templates/vendor_package.dsv.in \
-        --replace-fail 'opt/@PROJECT_NAME@/' ""
-      substituteInPlace cmake/templates/{vendor_package.sh.in,vendor_package_cmake_prefix.cmake.in,vendor_package_cmake_prefix.sh.in} \
-        --replace-fail '/opt/@PROJECT_NAME@' ""
-      substituteInPlace cmake/templates/vendor_package_cmake_prefix.dsv.in \
-        --replace-fail 'opt/@PROJECT_NAME@' ""
-    '' +
-    # Allow ament-cmake-vendor-package to work in Nix build sandbox
-    # without network access.
-    ''
-      # Rename the macro so that we can wrap it with our wrapper
-      substituteInPlace cmake/ament_vendor.cmake \
-        --replace-fail 'macro(ament_vendor TARGET_NAME)' 'macro(ament_vendor_orig TARGET_NAME)'
-      cp ${./ament_vendor_wrapper.cmake} ament_vendor_wrapper.cmake
-      # Add our wrapper to the list of cmake files
-      substituteInPlace CMakeLists.txt \
-        --replace-fail 'CONFIG_EXTRAS' 'CONFIG_EXTRAS "ament_vendor_wrapper.cmake"'
-    '';
-  });
+  ament-cmake-vendor-package = rosSuper.ament-cmake-vendor-package.overrideAttrs (
+    {
+      postPatch ? "",
+      ...
+    }:
+    {
+      # Install to standard directories instead of /opt. With Nix, we don't have
+      # to worry about collisions with system packages and Nix tooling generally
+      # expects standard directories.
+      postPatch =
+        postPatch
+        + ''
+          substituteInPlace cmake/ament_vendor.cmake \
+            --replace-fail 'opt/''${PROJECT_NAME}' .
+          substituteInPlace cmake/templates/vendor_package.dsv.in \
+            --replace-fail 'opt/@PROJECT_NAME@/' ""
+          substituteInPlace cmake/templates/{vendor_package.sh.in,vendor_package_cmake_prefix.cmake.in,vendor_package_cmake_prefix.sh.in} \
+            --replace-fail '/opt/@PROJECT_NAME@' ""
+          substituteInPlace cmake/templates/vendor_package_cmake_prefix.dsv.in \
+            --replace-fail 'opt/@PROJECT_NAME@' ""
+        ''
+        +
+          # Allow ament-cmake-vendor-package to work in Nix build sandbox
+          # without network access.
+          ''
+            # Rename the macro so that we can wrap it with our wrapper
+            substituteInPlace cmake/ament_vendor.cmake \
+              --replace-fail 'macro(ament_vendor TARGET_NAME)' 'macro(ament_vendor_orig TARGET_NAME)'
+            cp ${./ament_vendor_wrapper.cmake} ament_vendor_wrapper.cmake
+            # Add our wrapper to the list of cmake files
+            substituteInPlace CMakeLists.txt \
+              --replace-fail 'CONFIG_EXTRAS' 'CONFIG_EXTRAS "ament_vendor_wrapper.cmake"'
+          '';
+    }
+  );
 
-  backward-ros = rosSuper.backward-ros.overrideAttrs ({ postPatch ? "", ... }: {
+  backward-ros = rosSuper.backward-ros.overrideAttrs (
+    {
+      postPatch ? "",
+      ...
+    }:
+    {
 
-    # The `--as-needed` flag directs the linker to search all libraries specified
-    # during its invocation to identify which ones contain the symbols required by the binary.
-    #
-    # Due to the nixpkgs binutils wrapper and the reliance to `propagatedBuildInputs`,
-    # the overlay often propagates an excessive number of libraries.
-    #
-    # As a result, the `--as-needed` flag can significantly increase the time the linker
-    # spends searching through these libraries, potentially causing builds to fail to complete.
+      # The `--as-needed` flag directs the linker to search all libraries specified
+      # during its invocation to identify which ones contain the symbols required by the binary.
+      #
+      # Due to the nixpkgs binutils wrapper and the reliance to `propagatedBuildInputs`,
+      # the overlay often propagates an excessive number of libraries.
+      #
+      # As a result, the `--as-needed` flag can significantly increase the time the linker
+      # spends searching through these libraries, potentially causing builds to fail to complete.
 
-    postPatch = postPatch + ''
-     sed '/-Wl,--as-needed/d' -i cmake/BackwardConfigAment.cmake
-    '';
-  });
+      postPatch = postPatch + ''
+        sed '/-Wl,--as-needed/d' -i cmake/BackwardConfigAment.cmake
+      '';
+    }
+  );
 
-  behaviortree-cpp = rosSuper.behaviortree-cpp.overrideAttrs ({
-    cmakeFlags ? [], ...
-  }: {
-    # Don't use vendored tinyxml-2. Other packages like
-    # nav2-behavior-tree, can be linked against different tinyxml-2
-    # version propagated via their dependencies from nixpkgs. This can
-    # lead to inconsistencies causing segfaults:
-    # https://github.com/lopsided98/nix-ros-overlay/issues/648
-    # https://github.com/BehaviorTree/BehaviorTree.CPP/issues/1014
-    cmakeFlags = cmakeFlags ++ [ "-DUSE_VENDORED_TINYXML2=OFF" ];
-  });
-
+  behaviortree-cpp = rosSuper.behaviortree-cpp.overrideAttrs (
+    {
+      cmakeFlags ? [ ],
+      ...
+    }:
+    {
+      # Don't use vendored tinyxml-2. Other packages like
+      # nav2-behavior-tree, can be linked against different tinyxml-2
+      # version propagated via their dependencies from nixpkgs. This can
+      # lead to inconsistencies causing segfaults:
+      # https://github.com/lopsided98/nix-ros-overlay/issues/648
+      # https://github.com/BehaviorTree/BehaviorTree.CPP/issues/1014
+      cmakeFlags = cmakeFlags ++ [ "-DUSE_VENDORED_TINYXML2=OFF" ];
+    }
+  );
 
   # Cartographer is unmaintained upstream:
   # https://github.com/cartographer-project/cartographer?tab=readme-ov-file#a-note-for-ros-users
-  cartographer = rosSuper.cartographer.overrideAttrs ({
-    nativeBuildInputs ? [],
-    postPatch ? "", ...
-  }: {
-    nativeBuildInputs = nativeBuildInputs ++ [ self.pkg-config ];
+  cartographer = rosSuper.cartographer.overrideAttrs (
+    {
+      nativeBuildInputs ? [ ],
+      postPatch ? "",
+      ...
+    }:
+    {
+      nativeBuildInputs = nativeBuildInputs ++ [ self.pkg-config ];
 
-    # Add ABSL_ prefix to thread annotation macros. See
-    # https://github.com/abseil/abseil-cpp/commit/6acb60c161f1203e6eca929b87f2041da7714bfe
-    # Note that the mentioned ABSL_LEGACY_THREAD_ANNOTATIONS is no
-    # longer available so we have to patch all call sites.
-    postPatch = ''
-      sed -i -Ee 's/\<(LOCKS_EXCLUDED|EXCLUSIVE_LOCKS_REQUIRED|GUARDED_BY)\>/ABSL_\1/g' \
-          $(find -name \*.h -o -name \*.cc )
-    '';
-  });
+      # Add ABSL_ prefix to thread annotation macros. See
+      # https://github.com/abseil/abseil-cpp/commit/6acb60c161f1203e6eca929b87f2041da7714bfe
+      # Note that the mentioned ABSL_LEGACY_THREAD_ANNOTATIONS is no
+      # longer available so we have to patch all call sites.
+      postPatch = ''
+        sed -i -Ee 's/\<(LOCKS_EXCLUDED|EXCLUSIVE_LOCKS_REQUIRED|GUARDED_BY)\>/ABSL_\1/g' \
+            $(find -name \*.h -o -name \*.cc )
+      '';
+    }
+  );
 
-  cartographer-ros = rosSuper.cartographer-ros.overrideAttrs ({
-    patches ? [],
-    postPatch ? "", ...
-  }: {
-    patches = patches ++ [
-      # Fix compilation with glog >= 0.7.0 (https://github.com/ros2/cartographer_ros/pull/76)
-      (self.fetchpatch {
-        url = "https://github.com/ros2/cartographer_ros/commit/58cd253615606efbf0bf69d16a932d35aadef1f7.patch";
-        hash = "sha256-rmolyUYIWPT37kYITDW4cRO0XJNdIYs6AoUWgWVb8PU=";
-        stripLen = 1;
-      })
-    ];
-
-    # Add ABSL_ prefix to thread annotation macros. See details above.
-    postPatch = ''
-      sed -i -Ee 's/\<(LOCKS_EXCLUDED|EXCLUSIVE_LOCKS_REQUIRED|GUARDED_BY)\>/ABSL_\1/g' \
-          $(find -name \*.h -o -name \*.cpp )
-    '';
-  });
-
-  cloudini-lib = (rosSuper.cloudini-lib.override {
-    lz4 = self.lz4.overrideAttrs ({
-      cmakeFlags ? [], ...
-    }: {
-      cmakeFlags = cmakeFlags ++ [
-        "-DBUILD_STATIC_LIBS=ON"
-        "-DBUILD_TESTING=ON"
+  cartographer-ros = rosSuper.cartographer-ros.overrideAttrs (
+    {
+      patches ? [ ],
+      postPatch ? "",
+      ...
+    }:
+    {
+      patches = patches ++ [
+        # Fix compilation with glog >= 0.7.0 (https://github.com/ros2/cartographer_ros/pull/76)
+        (self.fetchpatch {
+          url = "https://github.com/ros2/cartographer_ros/commit/58cd253615606efbf0bf69d16a932d35aadef1f7.patch";
+          hash = "sha256-rmolyUYIWPT37kYITDW4cRO0XJNdIYs6AoUWgWVb8PU=";
+          stripLen = 1;
+        })
       ];
-    });
-    zstd = self.zstd.override { enableStatic = true; };
-  }).overrideAttrs { doCheck = true; };
+
+      # Add ABSL_ prefix to thread annotation macros. See details above.
+      postPatch = ''
+        sed -i -Ee 's/\<(LOCKS_EXCLUDED|EXCLUSIVE_LOCKS_REQUIRED|GUARDED_BY)\>/ABSL_\1/g' \
+            $(find -name \*.h -o -name \*.cpp )
+      '';
+    }
+  );
+
+  cloudini-lib =
+    (rosSuper.cloudini-lib.override {
+      lz4 = self.lz4.overrideAttrs (
+        {
+          cmakeFlags ? [ ],
+          ...
+        }:
+        {
+          cmakeFlags = cmakeFlags ++ [
+            "-DBUILD_STATIC_LIBS=ON"
+            "-DBUILD_TESTING=ON"
+          ];
+        }
+      );
+      zstd = self.zstd.override { enableStatic = true; };
+    }).overrideAttrs
+      { doCheck = true; };
 
   # Fails with ROS vendored tl-expected. Needs the one from nixpkgs.
   # TODO: Remove after merging https://github.com/lopsided98/nix-ros-overlay/pull/820 and
   # https://github.com/ros/rosdistro/pull/50246
   cras-cpp-common = rosSuper.cras-cpp-common.override { tl-expected = self.tl-expected; };
 
-  cyclonedds = rosSuper.cyclonedds.overrideAttrs ({
-    cmakeFlags ? [], ...
-  }: {
-    cmakeFlags = cmakeFlags ++ [
-      # Tries to download something with maven
-      "-DBUILD_IDLC=OFF"
-      # src/tools/ddsperf/CMakeFiles/ddsperf_types_generate.dir/build.make:74: *** target pattern contains no '%'.  Stop.
-      "-DBUILD_DDSPERF=OFF"
-    ];
-  });
+  cyclonedds = rosSuper.cyclonedds.overrideAttrs (
+    {
+      cmakeFlags ? [ ],
+      propagatedBuildInputs ? [ ],
+      ...
+    }:
+    let
+      isIceoryxPackage =
+        p:
+        p ? pname
+        && (
+          hasSuffix "-iceoryx-binding-c" p.pname
+          || hasSuffix "-iceoryx-hoofs" p.pname
+          || hasSuffix "-iceoryx-posh" p.pname
+        );
+    in
+    {
+      cmakeFlags =
+        cmakeFlags
+        ++ [
+          # Tries to download something with maven
+          "-DBUILD_IDLC=OFF"
+          # src/tools/ddsperf/CMakeFiles/ddsperf_types_generate.dir/build.make:74: *** target pattern contains no '%'.  Stop.
+          "-DBUILD_DDSPERF=OFF"
+        ]
+        ++ optionals self.stdenv.isDarwin [
+          # iceoryx pulls in Linux-only ACL support via the generated package metadata,
+          # but CycloneDDS can build and run on macOS without SHM enabled.
+          "-DENABLE_SHM=OFF"
+        ];
+      propagatedBuildInputs =
+        if self.stdenv.isDarwin then
+          builtins.filter (p: !isIceoryxPackage p) propagatedBuildInputs
+        else
+          propagatedBuildInputs;
+    }
+  );
 
-  fastrtps = rosSuper.fastrtps.overrideAttrs ({
-    cmakeFlags ? [], ...
-  }: {
-    cmakeFlags = cmakeFlags ++ optionals (!self.stdenv.buildPlatform.canExecute self.stdenv.hostPlatform) (
-      [ "-DSM_RUN_RESULT=0" ] ++
-      optional (self.stdenv.isLinux || self.stdenv.isDarwin)
-        "-DSM_RUN_RESULT__TRYRUN_OUTPUT=PTHREAD_RWLOCK_PREFER_READER_NP"
-    );
-  });
+  rmw-cyclonedds-cpp = rosSuper.rmw-cyclonedds-cpp.overrideAttrs (
+    {
+      propagatedBuildInputs ? [ ],
+      ...
+    }:
+    {
+      propagatedBuildInputs =
+        if self.stdenv.isDarwin then
+          builtins.filter (p: !(p ? pname && hasSuffix "-iceoryx-binding-c" p.pname)) propagatedBuildInputs
+        else
+          propagatedBuildInputs;
+    }
+  );
+
+  fastrtps = rosSuper.fastrtps.overrideAttrs (
+    {
+      cmakeFlags ? [ ],
+      ...
+    }:
+    {
+      cmakeFlags =
+        cmakeFlags
+        ++ optionals (!self.stdenv.buildPlatform.canExecute self.stdenv.hostPlatform) (
+          [ "-DSM_RUN_RESULT=0" ]
+          ++ optional (
+            self.stdenv.isLinux || self.stdenv.isDarwin
+          ) "-DSM_RUN_RESULT__TRYRUN_OUTPUT=PTHREAD_RWLOCK_PREFER_READER_NP"
+        );
+    }
+  );
 
   fmilibrary-vendor = patchExternalProjectGit rosSuper.fmilibrary-vendor {
     url = "https://github.com/modelon-community/fmi-library.git";
@@ -177,19 +270,27 @@ with rosSelf.lib; {
     fetchgitArgs.hash = "sha256-i8EtjPMg39S/3RyoUaXm5A8Nu/NbgAwjxRCdyh2elyU=";
   };
 
-  gmock-vendor = rosSuper.gmock-vendor.overrideAttrs ({
-    nativeBuildInputs ? [], ...
-  }: {
-    buildInputs = [];
-    nativeBuildInputs = nativeBuildInputs ++ [ self.buildPackages.cmake ];
-  });
+  gmock-vendor = rosSuper.gmock-vendor.overrideAttrs (
+    {
+      nativeBuildInputs ? [ ],
+      ...
+    }:
+    {
+      buildInputs = [ ];
+      nativeBuildInputs = nativeBuildInputs ++ [ self.buildPackages.cmake ];
+    }
+  );
 
-  gtest-vendor = rosSuper.gtest-vendor.overrideAttrs ({
-    nativeBuildInputs ? [], ...
-  }: {
-    buildInputs = [];
-    nativeBuildInputs = nativeBuildInputs ++ [ self.buildPackages.cmake ];
-  });
+  gtest-vendor = rosSuper.gtest-vendor.overrideAttrs (
+    {
+      nativeBuildInputs ? [ ],
+      ...
+    }:
+    {
+      buildInputs = [ ];
+      nativeBuildInputs = nativeBuildInputs ++ [ self.buildPackages.cmake ];
+    }
+  );
 
   gz-tools-vendor = rosSuper.gz-tools-vendor.overrideAttrs {
     setupHook = self.writeText "gz-tools-setup-hook.sh" ''
@@ -202,73 +303,91 @@ with rosSelf.lib; {
     '';
   };
 
-  iceoryx-posh = rosSuper.iceoryx-posh.overrideAttrs ({
-    patches ? [],
-    buildInputs ? [],
-    cmakeFlags ? [], ...
-  }: {
-    patches = patches ++ [
-      (self.fetchpatch {
-        url = "https://github.com/eclipse-iceoryx/iceoryx/commit/d4519632964794553791ef3f951ed47ca52ebbb6.patch";
-        hash = "sha256-f4kITUql8uFSptFmu7LZGChlfDG63b0gmsRyHp1NsWw=";
-        stripLen = 1;
-      })
-    ];
+  iceoryx-posh = rosSuper.iceoryx-posh.overrideAttrs (
+    {
+      patches ? [ ],
+      buildInputs ? [ ],
+      cmakeFlags ? [ ],
+      ...
+    }:
+    {
+      patches = patches ++ [
+        (self.fetchpatch {
+          url = "https://github.com/eclipse-iceoryx/iceoryx/commit/d4519632964794553791ef3f951ed47ca52ebbb6.patch";
+          hash = "sha256-f4kITUql8uFSptFmu7LZGChlfDG63b0gmsRyHp1NsWw=";
+          stripLen = 1;
+        })
+      ];
 
-    buildInputs = buildInputs ++ [ self.cpptoml ];
-    cmakeFlags = cmakeFlags ++ [ "-DDOWNLOAD_TOML_LIB=OFF" ];
-  });
+      buildInputs = buildInputs ++ [ self.cpptoml ];
+      cmakeFlags = cmakeFlags ++ [ "-DDOWNLOAD_TOML_LIB=OFF" ];
+    }
+  );
 
-  lanelet2-core = rosSuper.lanelet2-core.overrideAttrs ({
-    patches ? [], ...
-  }: {
-    patches = patches ++ [
-      # Fix compilation with Boost 1.87
-      (self.fetchpatch {
-        url = "https://github.com/fzi-forschungszentrum-informatik/Lanelet2/pull/399/commits/ab7d2f4dee299563c6313336c070ed99635aba3f.patch";
-        hash = "sha256-RKTjYPlnFY4JPGMa4YfyHUEY9X/Y1UpkNzB7AHmk4p0=";
-        stripLen = 1;
-      })
-    ];
-  });
+  lanelet2-core = rosSuper.lanelet2-core.overrideAttrs (
+    {
+      patches ? [ ],
+      ...
+    }:
+    {
+      patches = patches ++ [
+        # Fix compilation with Boost 1.87
+        (self.fetchpatch {
+          url = "https://github.com/fzi-forschungszentrum-informatik/Lanelet2/pull/399/commits/ab7d2f4dee299563c6313336c070ed99635aba3f.patch";
+          hash = "sha256-RKTjYPlnFY4JPGMa4YfyHUEY9X/Y1UpkNzB7AHmk4p0=";
+          stripLen = 1;
+        })
+      ];
+    }
+  );
 
-  libcamera = rosSuper.libcamera.overrideAttrs ({
-    postPatch ? "",
-    nativeBuildInputs ? [], ...
-  }: {
-    # Nixpkgs defaults to enabling all optional features, but we
-    # enable only features for which ROS package.xml declares
-    # dependencies.
-    mesonAutoFeatures = "auto";
-    postPatch = postPatch + ''
-      patchShebangs --build \
-        src/py/libcamera/*.py \
-        utils
-    '';
-    nativeBuildInputs = nativeBuildInputs ++ [ self.ninja ];
-  });
+  libcamera = rosSuper.libcamera.overrideAttrs (
+    {
+      postPatch ? "",
+      nativeBuildInputs ? [ ],
+      ...
+    }:
+    {
+      # Nixpkgs defaults to enabling all optional features, but we
+      # enable only features for which ROS package.xml declares
+      # dependencies.
+      mesonAutoFeatures = "auto";
+      postPatch = postPatch + ''
+        patchShebangs --build \
+          src/py/libcamera/*.py \
+          utils
+      '';
+      nativeBuildInputs = nativeBuildInputs ++ [ self.ninja ];
+    }
+  );
 
-  librealsense2 = (patchExternalProjectGit rosSuper.librealsense2 {
-    file = "CMake/external_libcurl.cmake";
-    originalUrl = ''"https://github.com/curl/curl.git"'';
-    url = "https://github.com/curl/curl.git";
-    originalRev = ''"curl-8_8_0"'';
-    rev = "curl-8_8_0";
-    fetchgitArgs.hash = "sha256-MjB6k8mDJypyuh6BN2hxy2My7/DfImjw+5iI729snBg=";
-  }).overrideAttrs ({
-    buildInputs ? [], postPatch ? "", ...
-  }: {
-    buildInputs = buildInputs ++ [ self.nlohmann_json ];
-    postPatch = postPatch + ''
-      # Get rid of nlohmann_json vendoring
-      substituteInPlace third-party/CMakeLists.txt \
-        --replace-fail 'include(CMake/external_json.cmake)' ""
-      # Don't try to install to $HOME
-      substituteInPlace tools/realsense-viewer/CMakeLists.txt \
-        --replace-fail '$ENV{HOME}/Documents/librealsense2/presets' ''\'''${CMAKE_INSTALL_PREFIX}/share/librealsense2/presets'
-    '';
-  });
-
+  librealsense2 =
+    (patchExternalProjectGit rosSuper.librealsense2 {
+      file = "CMake/external_libcurl.cmake";
+      originalUrl = ''"https://github.com/curl/curl.git"'';
+      url = "https://github.com/curl/curl.git";
+      originalRev = ''"curl-8_8_0"'';
+      rev = "curl-8_8_0";
+      fetchgitArgs.hash = "sha256-MjB6k8mDJypyuh6BN2hxy2My7/DfImjw+5iI729snBg=";
+    }).overrideAttrs
+      (
+        {
+          buildInputs ? [ ],
+          postPatch ? "",
+          ...
+        }:
+        {
+          buildInputs = buildInputs ++ [ self.nlohmann_json ];
+          postPatch = postPatch + ''
+            # Get rid of nlohmann_json vendoring
+            substituteInPlace third-party/CMakeLists.txt \
+              --replace-fail 'include(CMake/external_json.cmake)' ""
+            # Don't try to install to $HOME
+            substituteInPlace tools/realsense-viewer/CMakeLists.txt \
+              --replace-fail '$ENV{HOME}/Documents/librealsense2/presets' ''\'''${CMAKE_INSTALL_PREFIX}/share/librealsense2/presets'
+          '';
+        }
+      );
 
   # Fix for loading the default plugins for the `move-group` executable.
   #
@@ -279,43 +398,63 @@ with rosSelf.lib; {
   # until somebody can dig into it.
   #
   # See for more details: https://github.com/lopsided98/nix-ros-overlay/issues/264
-  moveit-ros-move-group = rosSuper.moveit-ros-move-group.overrideAttrs({
-    postFixup ? "", ...
-  }: {
-    postFixup = postFixup + ''
-      patchelf --add-needed libmoveit_move_group_default_capabilities.so $out/lib/moveit_ros_move_group/move_group
-      patchelf --add-needed libmoveit_move_group_default_capabilities.so $out/lib/moveit_ros_move_group/list_move_group_capabilities
-    '';
-  });
+  moveit-ros-move-group = rosSuper.moveit-ros-move-group.overrideAttrs (
+    {
+      postFixup ? "",
+      ...
+    }:
+    {
+      postFixup = postFixup + ''
+        patchelf --add-needed libmoveit_move_group_default_capabilities.so $out/lib/moveit_ros_move_group/move_group
+        patchelf --add-needed libmoveit_move_group_default_capabilities.so $out/lib/moveit_ros_move_group/list_move_group_capabilities
+      '';
+    }
+  );
 
   plotjuggler = rosSuper.plotjuggler.override {
-    lz4 = self.lz4.overrideAttrs ({
-      cmakeFlags ? [], ...
-    }: {
-      cmakeFlags = cmakeFlags ++ [ "-DBUILD_STATIC_LIBS=ON" ];
-    });
+    lz4 = self.lz4.overrideAttrs (
+      {
+        cmakeFlags ? [ ],
+        ...
+      }:
+      {
+        cmakeFlags = cmakeFlags ++ [ "-DBUILD_STATIC_LIBS=ON" ];
+      }
+    );
     zstd = self.zstd.override { enableStatic = true; };
   };
 
-  popf = rosSuper.popf.overrideAttrs ({
-    nativeBuildInputs ? [], postPatch ? "", ...
-  }: {
-    nativeBuildInputs = nativeBuildInputs ++ [ self.perl ];
-    postPatch = postPatch + ''
-      patchShebangs --build src/VALfiles/parsing/fixyywrap
-    '';
-  });
+  popf = rosSuper.popf.overrideAttrs (
+    {
+      nativeBuildInputs ? [ ],
+      postPatch ? "",
+      ...
+    }:
+    {
+      nativeBuildInputs = nativeBuildInputs ++ [ self.perl ];
+      postPatch = postPatch + ''
+        patchShebangs --build src/VALfiles/parsing/fixyywrap
+      '';
+    }
+  );
 
-  python-cmake-module = rosSuper.python-cmake-module.overrideAttrs ({ ... }: let
-    python = rosSelf.python;
-    libExt = self.stdenv.hostPlatform.extensions.sharedLibrary;
-  in {
-    pythonExecutable = python.pythonOnBuildForHost.interpreter;
-    pythonLibrary = "${python}/lib/lib${python.libPrefix}${libExt}";
-    pythonIncludeDir = "${python}/include/${python.libPrefix}";
-    setupHook = ./python-cmake-module-setup-hook.sh;
-    outputs = [ "out" "dev" ];
-  });
+  python-cmake-module = rosSuper.python-cmake-module.overrideAttrs (
+    { ... }:
+    let
+      python = rosSelf.python;
+      libExt = self.stdenv.hostPlatform.extensions.sharedLibrary;
+    in
+    {
+      pythonExecutable = python.pythonOnBuildForHost.interpreter;
+      pythonLibrary = "${python}/lib/lib${python.libPrefix}${libExt}";
+      pythonIncludeDir = "${python}/include/${python.libPrefix}";
+      setupHook = ./python-cmake-module-setup-hook.sh;
+      outputs = [
+        "out"
+        "dev"
+      ];
+    }
+  );
 
   rig-reconfigure = patchExternalProjectGit rosSuper.rig-reconfigure {
     url = "https://github.com/ocornut/imgui.git";
@@ -323,64 +462,114 @@ with rosSelf.lib; {
     fetchgitArgs.hash = "sha256-eY8lRsonPfDRTMCPhInT9rQ6lSaJPsXpkh428OKpTnA=";
   };
 
-  rmw-implementation = rosSuper.rmw-implementation.overrideAttrs ({
-    propagatedBuildInputs ? [], buildInputs ? [], ...
-  }: {
-    # The default implementation must be available to all dependent packages
-    # at build time.
-    propagatedBuildInputs = with rosSelf; [
-      rmw-fastrtps-cpp
-    ] ++ propagatedBuildInputs;
-    # rmw-cyclonedds-cpp fails to build on MacOS.
-    buildInputs = if self.stdenv.isDarwin then
-      builtins.filter (p: p.pname != "ros-${p.rosDistro}-rmw-cyclonedds-cpp") buildInputs
-    else
-      buildInputs;
-  });
+  rmw-implementation = rosSuper.rmw-implementation.overrideAttrs (
+    {
+      propagatedBuildInputs ? [ ],
+      buildInputs ? [ ],
+      ...
+    }:
+    {
+      # The default implementation must be available to all dependent packages
+      # at build time.
+      propagatedBuildInputs =
+        with rosSelf;
+        [
+          rmw-fastrtps-cpp
+        ]
+        ++ propagatedBuildInputs;
+    }
+  );
 
-  ros-gz-sim = rosSuper.ros-gz-sim.overrideAttrs ({
-    postPatch ? "", ...
-  }: {
-    # This launch file attempts to run the gz tool with a Ruby interpreter, but
-    # in our case it is an regular executable because it is wrapped.
-    postPatch = postPatch + ''
-      substituteInPlace launch/gz_sim.launch.py.in \
-        --replace-fail "'ruby ' + get_executable_path('gz') + ' sim'" "'gz sim'" \
-        --replace-fail "'ruby ' + get_executable_path('ign') + ' gazebo'" "'ign gazebo'"
-    '';
-  });
+  ros-gz-sim = rosSuper.ros-gz-sim.overrideAttrs (
+    {
+      postPatch ? "",
+      ...
+    }:
+    {
+      # This launch file attempts to run the gz tool with a Ruby interpreter, but
+      # in our case it is an regular executable because it is wrapped.
+      postPatch = postPatch + ''
+        substituteInPlace launch/gz_sim.launch.py.in \
+          --replace-fail "'ruby ' + get_executable_path('gz') + ' sim'" "'gz sim'" \
+          --replace-fail "'ruby ' + get_executable_path('ign') + ' gazebo'" "'ign gazebo'"
+      '';
+    }
+  );
 
-  rosidl-generator-py = rosSuper.rosidl-generator-py.overrideAttrs ({ ... }: {
-    setupHook = ./rosidl-generator-py-setup-hook.sh;
-  });
+  rosidl-generator-py = rosSuper.rosidl-generator-py.overrideAttrs (
+    { ... }:
+    {
+      setupHook = ./rosidl-generator-py-setup-hook.sh;
+    }
+  );
 
-  rosidl-default-generators = rosSuper.rosidl-default-generators.overrideAttrs ({
-    propagatedBuildInputs ? [], ...
-  }: {
-    # Add Rust support to all packages
-    # FIXME: seems to break nav2-msgs
-    # propagatedBuildInputs = propagatedBuildInputs ++ [ rosSelf.rosidl-generator-rs ];
-  });
+  rosidl-default-generators = rosSuper.rosidl-default-generators.overrideAttrs (
+    {
+      propagatedBuildInputs ? [ ],
+      ...
+    }:
+    {
+      # Add Rust support to all packages
+      # FIXME: seems to break nav2-msgs
+      # propagatedBuildInputs = propagatedBuildInputs ++ [ rosSelf.rosidl-generator-rs ];
+    }
+  );
 
-  rosidl-generator-rs = rosSuper.rosidl-generator-rs or (rosSelf.callPackage ../pkgs/rosidl-generator-rs { });
+  rosidl-generator-rs =
+    rosSuper.rosidl-generator-rs or (rosSelf.callPackage ../pkgs/rosidl-generator-rs { });
 
-  rosx-introspection = rosSuper.rosx-introspection.overrideAttrs ({
-    postPatch ? "", ...
-  }: {
-    # Don't download CPM, which is never needed because all
-    # dependencies are provided by Nix.
-    postPatch = postPatch + ''
-      substituteInPlace CMakeLists.txt --replace-fail 'include(cmake/CPM.cmake)' ""
-    '';
-  });
+  tracetools = rosSuper.tracetools.overrideAttrs (
+    {
+      cmakeFlags ? [ ],
+      propagatedBuildInputs ? [ ],
+      ...
+    }:
+    {
+      cmakeFlags =
+        cmakeFlags
+        ++ optionals self.stdenv.isDarwin [
+          "-DTRACETOOLS_DISABLED=ON"
+          "-DTRACETOOLS_STATUS_CHECKING_TOOL=OFF"
+        ];
+      propagatedBuildInputs =
+        if self.stdenv.isDarwin then
+          builtins.filter (
+            p:
+            !builtins.elem (p.pname or "") [
+              "lttng-tools"
+              "lttng-ust"
+            ]
+          ) propagatedBuildInputs
+        else
+          propagatedBuildInputs;
+    }
+  );
 
-  rqt-robot-monitor = rosSuper.rqt-robot-monitor.overrideAttrs ({
-    postFixup ? "", ...
-  }: {
-    postFixup = postFixup + ''
-      wrapQtApp "$out/lib/rqt_robot_monitor/rqt_robot_monitor"
-    '';
-  });
+  rosx-introspection = rosSuper.rosx-introspection.overrideAttrs (
+    {
+      postPatch ? "",
+      ...
+    }:
+    {
+      # Don't download CPM, which is never needed because all
+      # dependencies are provided by Nix.
+      postPatch = postPatch + ''
+        substituteInPlace CMakeLists.txt --replace-fail 'include(cmake/CPM.cmake)' ""
+      '';
+    }
+  );
+
+  rqt-robot-monitor = rosSuper.rqt-robot-monitor.overrideAttrs (
+    {
+      postFixup ? "",
+      ...
+    }:
+    {
+      postFixup = postFixup + ''
+        wrapQtApp "$out/lib/rqt_robot_monitor/rqt_robot_monitor"
+      '';
+    }
+  );
 
   # TODO: Remove after merging https://github.com/lopsided98/nix-ros-overlay/pull/820 and
   # https://github.com/ros/rosdistro/pull/50246
@@ -395,26 +584,35 @@ with rosSelf.lib; {
   rtabmap-viz = rosSuper.rtabmap-viz.overrideAttrs rtabmapPostPatchAarch64;
 
   # Common overrides for all distros. See also <distro>/overrides.nix.
-  rviz2 = rosSuper.rviz2.overrideAttrs ({
-    postFixup ? "", meta ? {}, ...
-  }: {
-    dontWrapQtApps = false;
-    postFixup = postFixup + ''
-      wrapQtApp "$out/lib/rviz2/rviz2"
-    '';
-    meta = meta // {
-      mainProgram = "rviz2";
-    };
-  });
+  rviz2 = rosSuper.rviz2.overrideAttrs (
+    {
+      postFixup ? "",
+      meta ? { },
+      ...
+    }:
+    {
+      dontWrapQtApps = false;
+      postFixup = postFixup + ''
+        wrapQtApp "$out/lib/rviz2/rviz2"
+      '';
+      meta = meta // {
+        mainProgram = "rviz2";
+      };
+    }
+  );
 
   # The build gets stuck in an infinite loop with absolute CMAKE_INSTALL_LIBDIR:
   # https://github.com/lagadic/visp/blob/9f1997ad17688c2d104cf2b29b57382c5d0af960/cmake/VISPGenerateConfig.cmake#L46
   # Also has the standard bad assumptions that CMAKE_INSTALL_*DIR is relative.
-  visp = rosSuper.visp.overrideAttrs ({
-    meta ? {}, ...
-  }: {
-    meta = meta // {
-      broken = true;
-    };
-  });
+  visp = rosSuper.visp.overrideAttrs (
+    {
+      meta ? { },
+      ...
+    }:
+    {
+      meta = meta // {
+        broken = true;
+      };
+    }
+  );
 }

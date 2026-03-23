@@ -2,7 +2,7 @@
 # Copyright 2026 Open Source Robotics Foundation
 # Distributed under the terms of the BSD license
 
-{ lib, buildRosPackage, fetchurl, asio, cmake, fastcdr, foonathan-memory-vendor, openssl, python3, tinyxml-2 }:
+{ lib, stdenv, buildRosPackage, fetchurl, asio, cmake, fastcdr, foonathan-memory-vendor, openssl, python3, tinyxml-2 }:
 buildRosPackage {
   pname = "ros-kilted-fastdds";
   version = "3.2.3-r1";
@@ -14,6 +14,10 @@ buildRosPackage {
   };
 
   buildType = "cmake";
+  postPatch = lib.optionalString stdenv.isDarwin ''
+    substituteInPlace src/cpp/utils/Host.cpp \
+      --replace-fail kIOMainPortDefault kIOMasterPortDefault
+  '';
   buildInputs = [ asio cmake ];
   propagatedBuildInputs = [ fastcdr foonathan-memory-vendor openssl python3 tinyxml-2 ];
   nativeBuildInputs = [ cmake ];

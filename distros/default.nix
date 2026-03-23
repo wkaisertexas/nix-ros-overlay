@@ -8,6 +8,7 @@ self: super: {
     mkRosDistroOverlay = args: import ./distro-overlay.nix args;
 
     humble = mkRosDistroOverlay { version = 2; distro = "humble"; } self super;
+    iron = mkRosDistroOverlay { version = 2; distro = "iron"; } self super;
     jazzy = mkRosDistroOverlay { version = 2; distro = "jazzy"; } self super;
     kilted = mkRosDistroOverlay { version = 2; distro = "kilted"; } self super;
     rolling = mkRosDistroOverlay { version = 2; distro = "rolling"; } self super;

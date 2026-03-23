@@ -25,7 +25,6 @@
       packages.update-overlay = pkgs.callPackage ./maintainers/scripts/update-overlay.nix { };
 
       devShells = {
-        example-turtlebot3-gazebo = import ./examples/turtlebot3-gazebo.nix { inherit pkgs; };
         example-ros2-basic = import ./examples/ros2-basic.nix { inherit pkgs; };
         example-ros2-desktop = import ./examples/ros2-desktop.nix { inherit pkgs; };
         example-ros2-desktop-full = import ./examples/ros2-desktop-full.nix { inherit pkgs; };
@@ -35,6 +34,7 @@
         # Development environment for the custom GitHub action
         nix-ros-build-action = pkgs.callPackage ./.github/actions/nix-ros-build-action/shell.nix { };
       }
+      // (genAttrs' distroNames (exampleForDistro "ros2-basic"))
       // (genAttrs' [ "jazzy" "kilted" "rolling" ] (exampleForDistro "ros2-gz"))
       // (genAttrs' distroNames (exampleForDistro "ros2-desktop"))
       // (genAttrs' distroNames (exampleForDistro "ros2-desktop-full"))

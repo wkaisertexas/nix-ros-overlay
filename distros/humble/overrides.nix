@@ -87,7 +87,7 @@ in with lib; {
   };
 
   foxglove-bridge = rosSuper.foxglove-bridge.overrideAttrs({
-    postPatch ? "", cmakeFlags ? [], ...
+    postPatch ? "", ...
   }: {
     postPatch = let
       # SDK version from
@@ -96,11 +96,15 @@ in with lib; {
       # and we can fix it here.
       FOXGLOVE_SDK_VERSION = "0.16.5";
       systemToPlatform = {
+        "aarch64-darwin" = "aarch64-apple-darwin";
         "x86_64-linux" = "x86_64-unknown-linux-gnu";
+        "x86_64-darwin" = "x86_64-apple-darwin";
         "aarch64-linux" = "aarch64-unknown-linux-gnu";
       };
       systemToHash = {
+        "aarch64-darwin" = "sha256-B5n8uZlhb+JdFtfksolK229/qXzpZxvZCNhBJQWIe+w=";
         "x86_64-linux" = "sha256-jkln7HRGoGtaBMR7VLzUzs/yrYd24ALvOAPtSnB2hB0=";
+        "x86_64-darwin" = "sha256-Pg1+V1596TUa5xoCAe3lwAAg8unRLMXNCOLIlgM8n6k=";
         "aarch64-linux" = "sha256-VMvFfGClUEc+CnX482DvtvokXrt/WC2176ZPHCl+VU8=";
       };
       FOXGLOVE_SDK_PLATFORM = systemToPlatform.${self.system};
@@ -114,12 +118,25 @@ in with lib; {
         substituteInPlace CMakeLists.txt --replace-fail \
           'https://github.com/foxglove/foxglove-sdk/releases/download/sdk%2Fv''${FOXGLOVE_SDK_VERSION}/foxglove-v''${FOXGLOVE_SDK_VERSION}-cpp-''${FOXGLOVE_SDK_PLATFORM}.zip' \
           ${sdk}
+
+        python3 - <<'PY'
+from pathlib import Path
+
+path = Path("CMakeLists.txt")
+text = path.read_text()
+old = """  if (CMAKE_SYSTEM_NAME STREQUAL \"Linux\" AND CMAKE_SYSTEM_PROCESSOR STREQUAL \"aarch64\")\n    set(FOXGLOVE_SDK_PLATFORM \"aarch64-unknown-linux-gnu\")\n    set(FOXGLOVE_SDK_SHA \"54cbc57c60a550473e0a75f8f360efb6fa245ebb7f582db5efa64f1c297e554f\")\n  elseif(CMAKE_SYSTEM_NAME STREQUAL \"Linux\" AND CMAKE_SYSTEM_PROCESSOR STREQUAL \"x86_64\")\n    set(FOXGLOVE_SDK_PLATFORM \"x86_64-unknown-linux-gnu\")\n    set(FOXGLOVE_SDK_SHA \"8e4967ec7446a06b5a04c47b54bcd4cecff2ad8776e002ef3803ed4a7076841d\")\n  else()\n    message(FATAL_ERROR \"Unsupported platform/architecture combination: ''${CMAKE_SYSTEM_PROCESSOR}-''${CMAKE_SYSTEM_NAME}\")\n  endif()\n"""
+new = """  if (CMAKE_SYSTEM_NAME STREQUAL \"Linux\" AND CMAKE_SYSTEM_PROCESSOR STREQUAL \"aarch64\")\n    set(FOXGLOVE_SDK_PLATFORM \"aarch64-unknown-linux-gnu\")\n    set(FOXGLOVE_SDK_SHA \"54cbc57c60a550473e0a75f8f360efb6fa245ebb7f582db5efa64f1c297e554f\")\n  elseif(CMAKE_SYSTEM_NAME STREQUAL \"Linux\" AND CMAKE_SYSTEM_PROCESSOR STREQUAL \"x86_64\")\n    set(FOXGLOVE_SDK_PLATFORM \"x86_64-unknown-linux-gnu\")\n    set(FOXGLOVE_SDK_SHA \"8e4967ec7446a06b5a04c47b54bcd4cecff2ad8776e002ef3803ed4a7076841d\")\n  elseif(CMAKE_SYSTEM_NAME STREQUAL \"Darwin\" AND CMAKE_SYSTEM_PROCESSOR STREQUAL \"arm64\")\n    set(FOXGLOVE_SDK_PLATFORM \"aarch64-apple-darwin\")\n    set(FOXGLOVE_SDK_SHA \"0799fcb999616fe25d16d7e4b2894adb6f7fa97ce9671bd908d8412505887bec\")\n  elseif(CMAKE_SYSTEM_NAME STREQUAL \"Darwin\" AND CMAKE_SYSTEM_PROCESSOR STREQUAL \"x86_64\")\n    set(FOXGLOVE_SDK_PLATFORM \"x86_64-apple-darwin\")\n    set(FOXGLOVE_SDK_SHA \"3e0d7e575e7de9351ae71a0201ede5c00020f2e9d12cc5cd08e2c896033c9fa9\")\n  else()\n    message(FATAL_ERROR \"Unsupported platform/architecture combination: ''${CMAKE_SYSTEM_PROCESSOR}-''${CMAKE_SYSTEM_NAME}\")\n  endif()\n"""
+if old not in text:
+    raise SystemExit("foxglove bridge platform block not found")
+path.write_text(text.replace(old, new))
+PY
       '';
-    cmakeFlags = cmakeFlags ++  [
-      # Prevent: stl_algobase.h:452:30: error: 'void* __builtin_memmove(void*, const void*, long unsigned int)' forming offset 8 is out of the bounds [0, 8] [-Werror=array-bounds=]
-      # TODO: Remove this after we move to newer libstdc++
-      "-DCMAKE_CXX_FLAGS=-Wno-error=array-bounds"
+    env.NIX_CFLAGS_COMPILE = toString [
+      # The upstream bridge enables -Werror and clang 19 reports format mismatches on macOS.
+      "-Wno-error=array-bounds"
+      "-Wno-error=format"
     ];
+    env.NIX_LDFLAGS = lib.optionalString self.stdenv.isDarwin "-framework Security -framework CoreFoundation";
   });
 
   gazebo = self.gazebo_11;
@@ -501,6 +518,8 @@ in with lib; {
         --replace-fail 'find_package(Python 3.10 EXACT' 'find_package(Python 3.10'
     '';
   });
+
+  ros2-numpy = rosSelf.callPackage ./ros2-numpy {};
 
   zenoh-cpp-vendor = (lib.patchAmentVendorGit rosSuper.zenoh-cpp-vendor {
     # Patch the build.rs script to be able to build internal
